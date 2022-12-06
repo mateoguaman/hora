@@ -13,6 +13,7 @@
 import os
 import time
 import torch
+import numpy as np
 
 from hora.algo.ppo.experience import ExperienceBuffer
 from hora.algo.models.models import ActorCritic
@@ -315,6 +316,7 @@ class PPO(object):
         return a_losses, c_losses, b_losses, entropies, kls
 
     def play_steps(self):
+        # import pdb;pdb.set_trace()
         for n in range(self.horizon_length):
             res_dict = self.model_act(self.obs)
             # collect o_t
@@ -353,7 +355,7 @@ class PPO(object):
 
         res_dict = self.model_act(self.obs)
         last_values = res_dict['values']
-
+        # import pdb;pdb.set_trace()
         self.agent_steps += self.batch_size
         self.storage.computer_return(last_values, self.gamma, self.tau)
         self.storage.prepare_training()
@@ -367,6 +369,23 @@ class PPO(object):
             self.value_mean_std.eval()
         self.storage.data_dict['values'] = values
         self.storage.data_dict['returns'] = returns
+
+        # Added by Mateo: I think we probably want to save this dictionary of experience. Issue: This only has a horizon of length 8, but has 16384 actors acting in parallel, so we don't have a lot of experience to train the MAE with
+        # import pdb;pdb.set_trace()
+        buffer_to_save = {
+            'observation': self.storage.data_dict['obses'].cpu().numpy(),
+            'action': self.storage.data_dict['actions'].cpu().numpy(),
+            'reward': self.storage.data_dict['rewards'].cpu().numpy(),
+            'done': self.storage.data_dict['dones'].cpu().numpy()
+        }
+        buffer_length = buffer_to_save['observation'].shape[0]
+        save_dir = os.path.join(os.getcwd(), f'ppo_horizon_{self.horizon_length}')
+        print(f"Saving data in {save_dir}")
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        # import pdb;pdb.set_trace()
+        np.savez(os.path.join(save_dir, f"episode_{self.epoch_num:06}_{buffer_length}.npz"), **buffer_to_save)
+
 
 
 def policy_kl(p0_mu, p0_sigma, p1_mu, p1_sigma):
