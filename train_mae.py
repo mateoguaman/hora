@@ -37,7 +37,7 @@ OmegaConf.register_new_resolver('if', lambda pred, a, b: a if pred else b)
 OmegaConf.register_new_resolver('resolve_default', lambda default, arg: default if arg == '' else arg)
 
 
-@hydra.main(config_name='config', config_path='configs')
+@hydra.main(config_name='config_mae', config_path='configs')
 def main(config: DictConfig):
     if config.checkpoint:
         config.checkpoint = to_absolute_path(config.checkpoint)
@@ -61,24 +61,24 @@ def main(config: DictConfig):
         agent.restore_test(config.train.load_path)
         agent.test()
     else:
-        date = str(datetime.datetime.now().strftime('%m%d%H'))
-        print(git_diff_config('./'))
-        os.system(f'git diff HEAD > {output_dif}/gitdiff.patch')
-        with open(os.path.join(output_dif, f'config_{date}_{git_hash()}.yaml'), 'w') as f:
-            f.write(OmegaConf.to_yaml(config))
+        # date = str(datetime.datetime.now().strftime('%m%d%H'))
+        # print(git_diff_config('./'))
+        # os.system(f'git diff HEAD > {output_dif}/gitdiff.patch')
+        # with open(os.path.join(output_dif, f'config_{date}_{git_hash()}.yaml'), 'w') as f:
+        #     f.write(OmegaConf.to_yaml(config))
 
-        # check whether execute train by mistake:
-        best_ckpt_path = os.path.join(
-            'outputs', config.train.ppo.output_name,
-            'stage1_nn' if config.train.algo == 'PPO' else 'stage2_nn', 'best.pth'
-        )
-        if os.path.exists(best_ckpt_path):
-            user_input = input(
-                f'are you intentionally going to overwrite files in {config.train.ppo.output_name}, type yes to continue \n')
-            if user_input != 'yes':
-                exit()
+        # # check whether execute train by mistake:
+        # best_ckpt_path = os.path.join(
+        #     'outputs', config.train.ppo.output_name,
+        #     'stage1_nn' if config.train.algo == 'PPO' else 'stage2_nn', 'best.pth'
+        # )
+        # if os.path.exists(best_ckpt_path):
+        #     user_input = input(
+        #         f'are you intentionally going to overwrite files in {config.train.ppo.output_name}, type yes to continue \n')
+        #     if user_input != 'yes':
+        #         exit()
 
-        agent.restore_train(config.train.load_path)
+        # agent.restore_train(config.train.load_path)
         agent.train()
 
 
