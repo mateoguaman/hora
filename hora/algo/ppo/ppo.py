@@ -251,6 +251,7 @@ class PPO(object):
             for i in range(len(self.storage)):
                 value_preds, old_action_log_probs, advantage, old_mu, old_sigma, \
                     returns, actions, obs, priv_info = self.storage[i]
+                # import pdb;pdb.set_trace()
 
                 obs = self.running_mean_std(obs)
                 batch_dict = {
@@ -384,7 +385,7 @@ class PPO(object):
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         # import pdb;pdb.set_trace()
-        np.savez(os.path.join(save_dir, f"episode_{self.epoch_num:06}_{buffer_length}.npz"), **buffer_to_save)
+        # np.savez(os.path.join(save_dir, f"episode_{self.epoch_num:06}_{buffer_length}.npz"), **buffer_to_save)
 
 
 
