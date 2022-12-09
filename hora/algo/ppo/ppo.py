@@ -14,6 +14,9 @@ import os
 import time
 import torch
 import numpy as np
+import random
+import ipdb
+st = ipdb.set_trace
 
 from hora.algo.ppo.experience import ExperienceBuffer
 from hora.algo.models.models import ActorCritic
@@ -42,6 +45,12 @@ class PPO(object):
         self.priv_info_dim = self.ppo_config['priv_info_dim']
         self.priv_info = self.ppo_config['priv_info']
         self.proprio_adapt = self.ppo_config['proprio_adapt']
+        self.horizon_length = self.ppo_config['horizon_length']
+        self.train_mae = self.ppo_config['train_mae']
+        # st()
+        self.do_ttt = self.ppo_config['do_ttt']
+        
+        self.random_timesteps = self.ppo_config['random_timesteps']
         # ---- Model ----
         net_config = {
             'actor_units': self.network_config.mlp.units,
@@ -49,6 +58,8 @@ class PPO(object):
             'actions_num': self.actions_num,
             'input_shape': self.obs_shape,
             'priv_info': self.priv_info,
+            'train_mae': self.train_mae,
+            'horizon_length': self.horizon_length,
             'proprio_adapt': self.proprio_adapt,
             'priv_info_dim': self.priv_info_dim,
         }
@@ -66,7 +77,11 @@ class PPO(object):
         # ---- Optim ----
         self.last_lr = float(self.ppo_config['learning_rate'])
         self.weight_decay = self.ppo_config.get('weight_decay', 0.0)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), self.last_lr, weight_decay=self.weight_decay)
+        # st()
+        if self.do_ttt:
+            self.optimizer = torch.optim.Adam(self.model.actor_mlp.parameters(), self.last_lr, weight_decay=self.weight_decay)
+        else:
+            self.optimizer = torch.optim.Adam(self.model.parameters(), self.last_lr, weight_decay=self.weight_decay)
         # ---- PPO Train Param ----
         self.e_clip = self.ppo_config['e_clip']
         self.clip_value = self.ppo_config['clip_value']
@@ -83,6 +98,8 @@ class PPO(object):
         self.normalize_value = self.ppo_config['normalize_value']
         # ---- PPO Collect Param ----
         self.horizon_length = self.ppo_config['horizon_length']
+        
+        # st()
         self.batch_size = self.horizon_length * self.num_actors
         self.minibatch_size = self.ppo_config['minibatch_size']
         self.mini_epochs_num = self.ppo_config['mini_epochs']
@@ -120,10 +137,11 @@ class PPO(object):
         self.rl_train_time = 0
         self.all_time = 0
 
-    def write_stats(self, a_losses, c_losses, b_losses, entropies, kls):
+    def write_stats(self, a_losses, c_losses, b_losses, entropies, kls, mae_loss):
         self.writer.add_scalar('performance/RLTrainFPS', self.agent_steps / self.rl_train_time, self.agent_steps)
         self.writer.add_scalar('performance/EnvStepFPS', self.agent_steps / self.data_collect_time, self.agent_steps)
-
+        # st()
+        self.writer.add_scalar('losses/mae_loss', mae_loss, self.agent_steps)
         self.writer.add_scalar('losses/actor_loss', torch.mean(torch.stack(a_losses)).item(), self.agent_steps)
         self.writer.add_scalar('losses/bounds_loss', torch.mean(torch.stack(b_losses)).item(), self.agent_steps)
         self.writer.add_scalar('losses/critic_loss', torch.mean(torch.stack(c_losses)).item(), self.agent_steps)
@@ -168,8 +186,9 @@ class PPO(object):
 
         while self.agent_steps < self.max_agent_steps:
             self.epoch_num += 1
-            a_losses, c_losses, b_losses, entropies, kls = self.train_epoch()
+            a_losses, c_losses, b_losses, entropies, kls, mae_loss = self.train_epoch()
             self.storage.data_dict = None
+            # st()
 
             all_fps = self.agent_steps / (time.time() - _t)
             last_fps = self.batch_size / (time.time() - _last_t)
@@ -178,10 +197,11 @@ class PPO(object):
                           f'Last FPS: {last_fps:.1f} | ' \
                           f'Collect Time: {self.data_collect_time / 60:.1f} min | ' \
                           f'Train RL Time: {self.rl_train_time / 60:.1f} min | ' \
-                          f'Current Best: {self.best_rewards:.2f}'
+                          f'Current Best: {self.best_rewards:.2f}'\
+                          f' | MAE Loss: {mae_loss:.2f}'
             print(info_string)
 
-            self.write_stats(a_losses, c_losses, b_losses, entropies, kls)
+            self.write_stats(a_losses, c_losses, b_losses, entropies, kls, mae_loss)
 
             mean_rewards = self.episode_rewards.get_mean()
             mean_lengths = self.episode_lengths.get_mean()
@@ -213,6 +233,7 @@ class PPO(object):
     def restore_train(self, fn):
         if not fn:
             return
+        # st()
         checkpoint = torch.load(fn)
         self.model.load_state_dict(checkpoint['model'])
         self.running_mean_std.load_state_dict(checkpoint['running_mean_std'])
@@ -239,7 +260,9 @@ class PPO(object):
         # collect minibatch data
         _t = time.time()
         self.set_eval()
+
         self.play_steps()
+
         self.data_collect_time += (time.time() - _t)
         # update network
         _t = time.time()
@@ -249,8 +272,19 @@ class PPO(object):
         for _ in range(0, self.mini_epochs_num):
             ep_kls = []
             for i in range(len(self.storage)):
+                # st()
                 value_preds, old_action_log_probs, advantage, old_mu, old_sigma, \
                     returns, actions, obs, priv_info = self.storage[i]
+                
+                if self.train_mae:
+                    if self.random_timesteps:
+                        timestep_to_predict = np.random.randint(0,self.horizon_length,actions.shape[0])
+                    else:
+                        timestep_to_predict = random.randint(0, self.horizon_length)
+                    # st()
+                    _, _, _, _, _, _, actions_target, obs_target, _  = self.storage[timestep_to_predict]
+
+                
 
                 obs = self.running_mean_std(obs)
                 batch_dict = {
@@ -258,6 +292,12 @@ class PPO(object):
                     'obs': obs,
                     'priv_info': priv_info,
                 }
+
+                if self.train_mae:
+                    batch_dict['obs_target'] = obs_target
+                    batch_dict['actions_target'] = actions_target
+                    batch_dict['timestep_to_predict'] = timestep_to_predict
+                
                 res_dict = self.model(batch_dict)
                 action_log_probs = res_dict['prev_neglogp']
                 values = res_dict['values']
@@ -286,6 +326,17 @@ class PPO(object):
                 a_loss, c_loss, entropy, b_loss = [torch.mean(loss) for loss in [a_loss, c_loss, entropy, b_loss]]
 
                 loss = a_loss + 0.5 * c_loss * self.critic_coef - entropy * self.entropy_coef + b_loss * self.bounds_loss_coef
+                
+                if self.train_mae:
+                    if self.do_ttt:
+                        loss = res_dict['mae_loss']
+                        mae_loss = res_dict['mae_loss']
+                    else:
+                        mae_loss = res_dict['mae_loss']
+                        loss  = loss + 1.0*res_dict['mae_loss']
+                else:
+                    mae_loss = 0.0
+                # st()
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -313,7 +364,8 @@ class PPO(object):
             kls.append(av_kls)
 
         self.rl_train_time += (time.time() - _t)
-        return a_losses, c_losses, b_losses, entropies, kls
+        # st()
+        return a_losses, c_losses, b_losses, entropies, kls, mae_loss
 
     def play_steps(self):
         # import pdb;pdb.set_trace()
@@ -372,19 +424,19 @@ class PPO(object):
 
         # Added by Mateo: I think we probably want to save this dictionary of experience. Issue: This only has a horizon of length 8, but has 16384 actors acting in parallel, so we don't have a lot of experience to train the MAE with
         # import pdb;pdb.set_trace()
-        buffer_to_save = {
-            'observation': self.storage.data_dict['obses'].cpu().numpy(),
-            'action': self.storage.data_dict['actions'].cpu().numpy(),
-            'reward': self.storage.data_dict['rewards'].cpu().numpy(),
-            'done': self.storage.data_dict['dones'].cpu().numpy()
-        }
-        buffer_length = buffer_to_save['observation'].shape[0]
-        save_dir = os.path.join(os.getcwd(), f'ppo_horizon_{self.horizon_length}')
-        print(f"Saving data in {save_dir}")
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-        # import pdb;pdb.set_trace()
-        np.savez(os.path.join(save_dir, f"episode_{self.epoch_num:06}_{buffer_length}.npz"), **buffer_to_save)
+        # buffer_to_save = {
+        #     'observation': self.storage.data_dict['obses'].cpu().numpy(),
+        #     'action': self.storage.data_dict['actions'].cpu().numpy(),
+        #     'reward': self.storage.data_dict['rewards'].cpu().numpy(),
+        #     'done': self.storage.data_dict['dones'].cpu().numpy()
+        # }
+        # buffer_length = buffer_to_save['observation'].shape[0]
+        # save_dir = os.path.join(os.getcwd(), f'ppo_horizon_{self.horizon_length}')
+        # print(f"Saving data in {save_dir}")
+        # if not os.path.exists(save_dir):
+        #     os.makedirs(save_dir)
+        # # import pdb;pdb.set_trace()
+        # np.savez(os.path.join(save_dir, f"episode_{self.epoch_num:06}_{buffer_length}.npz"), **buffer_to_save)
 
 
 

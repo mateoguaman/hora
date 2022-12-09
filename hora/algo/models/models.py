@@ -8,6 +8,8 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import ipdb
+st = ipdb.set_trace
 import torch.nn.functional as F
 
 
@@ -24,6 +26,20 @@ class MLP(nn.Module):
     def forward(self, x):
         return self.mlp(x)
 
+
+class MLP_linear(nn.Module):
+    def __init__(self, units, input_size):
+        super(MLP_linear, self).__init__()
+        layers = []
+        for idx, output_size in enumerate(units):
+            layers.append(nn.Linear(input_size, output_size))
+            if idx < len(units) - 1:
+                layers.append(nn.ELU())
+            input_size = output_size
+        self.mlp = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.mlp(x)
 
 class ProprioAdaptTConv(nn.Module):
     def __init__(self):
@@ -59,7 +75,10 @@ class ActorCritic(nn.Module):
         input_shape = kwargs.pop('input_shape')
         self.units = kwargs.pop('actor_units')
         self.priv_mlp = kwargs.pop('priv_mlp_units')
+        self.horizon_length = kwargs.pop('horizon_length')
+        self.train_mae = kwargs.pop('train_mae')
         mlp_input_shape = input_shape[0]
+        # st()
 
         out_size = self.units[-1]
         self.priv_info = kwargs['priv_info']
@@ -76,6 +95,13 @@ class ActorCritic(nn.Module):
         self.mu = torch.nn.Linear(out_size, actions_num)
         self.sigma = nn.Parameter(torch.zeros(actions_num, requires_grad=True, dtype=torch.float32), requires_grad=True)
 
+
+        if self.train_mae:
+            self.timestep = torch.nn.Linear(1, out_size)
+            self.preproc_x = MLP_linear(units=[out_size,out_size,out_size], input_size=out_size)
+            self.postproc_x_action = MLP_linear(units=[out_size,out_size,actions_num], input_size=out_size)
+            self.postproc_x_obs = MLP_linear(units=[out_size,out_size,actions_num*6], input_size=out_size)
+
         for m in self.modules():
             if isinstance(m, nn.Conv2d) or isinstance(m, nn.Conv1d):
                 fan_out = m.kernel_size[0] * m.out_channels
@@ -91,7 +117,7 @@ class ActorCritic(nn.Module):
     def act(self, obs_dict):
         # used specifically to collection samples during training
         # it contains exploration so needs to sample from distribution
-        mu, logstd, value, _, _ = self._actor_critic(obs_dict)
+        _, mu, logstd, value, _, _ = self._actor_critic(obs_dict)
         sigma = torch.exp(logstd)
         distr = torch.distributions.Normal(mu, sigma)
         selected_action = distr.sample()
@@ -112,6 +138,7 @@ class ActorCritic(nn.Module):
 
     def _actor_critic(self, obs_dict):
         obs = obs_dict['obs']
+        # st()
         extrin, extrin_gt = None, None
         if self.priv_info:
             if self.priv_info_stage2:
@@ -130,12 +157,31 @@ class ActorCritic(nn.Module):
         value = self.value(x)
         mu = self.mu(x)
         sigma = self.sigma
-        return mu, mu * 0 + sigma, value, extrin, extrin_gt
+        return x, mu, mu * 0 + sigma, value, extrin, extrin_gt
 
     def forward(self, input_dict):
         prev_actions = input_dict.get('prev_actions', None)
+        # st()
         rst = self._actor_critic(input_dict)
-        mu, logstd, value, extrin, extrin_gt = rst
+        shared_feat, mu, logstd, value, extrin, extrin_gt = rst
+        
+        if self.train_mae:
+            timestep_to_predict = np.expand_dims(input_dict['timestep_to_predict'],-1)
+            # st()
+            timestep_to_predict = torch.from_numpy(timestep_to_predict).float().to(input_dict['obs'].device)/self.horizon_length
+            timestep_to_predict = self.timestep(timestep_to_predict)
+            shared_feat_ = self.preproc_x(shared_feat)
+            shared_feat_ = shared_feat_ + timestep_to_predict
+            action_tgt_pred = self.postproc_x_action(shared_feat_)
+            obs_tgt_pred = self.postproc_x_obs(shared_feat_)
+            self.mse_loss = torch.nn.MSELoss()
+            action_mse_loss = self.mse_loss(action_tgt_pred, input_dict['actions_target'])
+            obs_mse_loss = self.mse_loss(obs_tgt_pred, input_dict['obs_target'])
+            mae_loss = 0.5*action_mse_loss + obs_mse_loss
+            # st()
+
+        #     input_dict
+        # st()
         sigma = torch.exp(logstd)
         distr = torch.distributions.Normal(mu, sigma)
         entropy = distr.entropy().sum(dim=-1)
@@ -149,4 +195,6 @@ class ActorCritic(nn.Module):
             'extrin': extrin,
             'extrin_gt': extrin_gt,
         }
+        if self.train_mae:
+            result['mae_loss'] = mae_loss
         return result

@@ -43,4 +43,4 @@ ppo:
   proprio_adapt: False  
   train_mae: True
   random_timesteps: True
-  do_ttt: False
+  do_ttt: True

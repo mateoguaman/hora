@@ -13,6 +13,9 @@
 import gym
 import torch
 from torch.utils.data import Dataset
+import numpy as np
+import ipdb
+st = ipdb.set_trace
 
 
 def transform_op(arr):
@@ -57,16 +60,28 @@ class ExperienceBuffer(Dataset):
         return self.length
 
     def __getitem__(self, idx):
+        # st()
         start = idx * self.minibatch_size
         end = (idx + 1) * self.minibatch_size
         self.last_range = (start, end)
         input_dict = {}
+        if isinstance(start,np.ndarray):
+            env_id = np.arange(0,self.minibatch_size)
+            start = start + env_id
+        # st()
         for k, v in self.data_dict.items():
             if type(v) is dict:
-                v_dict = {kd: vd[start:end] for kd, vd in v.items()}
+                if isinstance(start,np.ndarray):
+                    v_dict = {kd: vd[start] for kd, vd in v.items()}
+                else:
+                    v_dict = {kd: vd[start:end] for kd, vd in v.items()}
                 input_dict[k] = v_dict
             else:
-                input_dict[k] = v[start:end]
+                if isinstance(start,np.ndarray):
+                    input_dict[k] = v[start]
+                else:
+                    input_dict[k] = v[start:end]
+        # st()
         return input_dict['values'], input_dict['neglogpacs'], input_dict['advantages'], input_dict['mus'], \
             input_dict['sigmas'], input_dict['returns'], input_dict['actions'], \
             input_dict['obses'], input_dict['priv_info']
@@ -74,8 +89,13 @@ class ExperienceBuffer(Dataset):
     def update_mu_sigma(self, mu, sigma):
         start = self.last_range[0]
         end = self.last_range[1]
-        self.data_dict['mus'][start:end] = mu
-        self.data_dict['sigmas'][start:end] = sigma
+        # st()
+        if isinstance(start,np.ndarray):
+            self.data_dict['mus'][start] = mu
+            self.data_dict['sigmas'][start] = sigma
+        else:
+            self.data_dict['mus'][start:end] = mu
+            self.data_dict['sigmas'][start:end] = sigma
 
     def update_data(self, name, index, val):
         if type(val) is dict:

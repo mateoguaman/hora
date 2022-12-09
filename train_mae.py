@@ -18,6 +18,8 @@ import datetime
 from termcolor import cprint
 from omegaconf import DictConfig, OmegaConf
 from hydra.utils import to_absolute_path
+import ipdb
+st = ipdb.set_trace
 
 from hora.algo.ppo.ppo import PPO
 from hora.algo.padapt.padapt import ProprioAdapt
@@ -39,6 +41,8 @@ OmegaConf.register_new_resolver('resolve_default', lambda default, arg: default 
 
 @hydra.main(config_name='config_mae', config_path='configs')
 def main(config: DictConfig):
+    config.checkpoint = '/home/mihirpd_google_com/projects/mateo_hora/hora/outputs/AllegroHandMAE/mae/stage1_nn/ep_9500_step_1245M_reward_42.33.pth'
+    # st()
     if config.checkpoint:
         config.checkpoint = to_absolute_path(config.checkpoint)
 
@@ -77,8 +81,9 @@ def main(config: DictConfig):
         #         f'are you intentionally going to overwrite files in {config.train.ppo.output_name}, type yes to continue \n')
         #     if user_input != 'yes':
         #         exit()
+        # st()
 
-        # agent.restore_train(config.train.load_path)
+        agent.restore_train(config.train.load_path)
         agent.train()
 
 
