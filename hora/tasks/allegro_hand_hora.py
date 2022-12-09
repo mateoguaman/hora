@@ -521,6 +521,8 @@ class AllegroHandHora(VecTask):
         self.object_type_list = []
         self.asset_files_dict = {
             'simple_tennis_ball': 'assets/ball.urdf',
+            'banana': 'assets/ycb/011_banana.urdf',
+            'meat_can': 'assets/ycb/010_potted_meat_can.urdf'
         }
         for p_id, prim in enumerate(primitive_list):
             if 'cuboid' in prim:

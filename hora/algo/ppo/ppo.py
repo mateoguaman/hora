@@ -274,8 +274,7 @@ class PPO(object):
             for i in range(len(self.storage)):
                 # st()
                 value_preds, old_action_log_probs, advantage, old_mu, old_sigma, \
-                    returns, actions, obs, priv_info = self.storage[i]
-                
+                    returns, actions, obs, priv_info = self.storage[i]                
                 if self.train_mae:
                     if self.random_timesteps:
                         timestep_to_predict = np.random.randint(0,self.horizon_length,actions.shape[0])
@@ -284,7 +283,7 @@ class PPO(object):
                     # st()
                     _, _, _, _, _, _, actions_target, obs_target, _  = self.storage[timestep_to_predict]
 
-                
+
 
                 obs = self.running_mean_std(obs)
                 batch_dict = {
@@ -424,6 +423,7 @@ class PPO(object):
 
         # Added by Mateo: I think we probably want to save this dictionary of experience. Issue: This only has a horizon of length 8, but has 16384 actors acting in parallel, so we don't have a lot of experience to train the MAE with
         # import pdb;pdb.set_trace()
+
         # buffer_to_save = {
         #     'observation': self.storage.data_dict['obses'].cpu().numpy(),
         #     'action': self.storage.data_dict['actions'].cpu().numpy(),
@@ -436,6 +436,7 @@ class PPO(object):
         # if not os.path.exists(save_dir):
         #     os.makedirs(save_dir)
         # # import pdb;pdb.set_trace()
+
         # np.savez(os.path.join(save_dir, f"episode_{self.epoch_num:06}_{buffer_length}.npz"), **buffer_to_save)
 
 
